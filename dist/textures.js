@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { rng, makeNoise2D } from './util.js';
+import { rng, makeNoise2D } from './util.js?v=bd76b00c2d';
 function canvasTex(w, h, draw, opts = {}) {
     const c = document.createElement('canvas');
     c.width = w;

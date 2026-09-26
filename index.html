@@ -3,7 +3,13 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>半导体产业园区 · Three.js 程序化还原</title>
+<title>半导体产业园区 · 三维模型</title>
+<meta name="description" content="半导体产业园区三维模型：FAB、行政楼、展示接待馆、景观水系与道路，可旋转缩放、点选建筑查看信息。" />
+<meta property="og:title" content="半导体产业园区 · 三维模型" />
+<meta property="og:description" content="可交互的园区三维模型，支持旋转缩放、视角切换、夜景。" />
+<meta property="og:image" content="preview.jpg" />
+<meta name="theme-color" content="#c9d6de" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%232f6f8f%22/%3E%3Cpath d=%22M6 22h20v4H6zM8 12h7v9H8zM17 8h7v13h-7z%22 fill=%22white%22/%3E%3C/svg%3E" />
 <style>
   :root { --panel: rgba(18, 24, 32, 0.78); --ink: #eef2f5; --muted: #9fb0bf; --accent: #ffc040; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #c9d6de; font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
@@ -15,7 +21,7 @@
   .callout i { position: absolute; left: 50%; bottom: -24px; width: 2px; height: 22px; background: #fff; transform: translateX(-50%); }
   .callout i::after { content: ''; position: absolute; left: -3px; bottom: -3px; width: 8px; height: 8px; background: #fff; transform: rotate(45deg); }
   #panel { position: fixed; left: 16px; top: 16px; width: 272px; background: var(--panel); color: var(--ink); border-radius: 12px; padding: 14px 14px 10px; backdrop-filter: blur(8px); font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.3); }
-  #panel h1 { font-size: 15px; margin: 0 0 2px; }
+  #panel h1 { font-size: 15px; margin: 0 0 2px; padding-right: 34px; }
   #panel .sub { color: var(--muted); font-size: 11.5px; margin-bottom: 10px; }
   #panel .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
   #panel button { flex: 1 1 auto; background: rgba(255,255,255,0.08); color: var(--ink); border: 1px solid rgba(255,255,255,0.18); border-radius: 7px; padding: 6px 8px; font-size: 12px; cursor: pointer; }
@@ -36,7 +42,27 @@
   #refwrap div { position: absolute; left: 8px; top: 6px; color: #fff; font-size: 12px; text-shadow: 0 1px 3px #000; }
   #scale { position: fixed; left: 16px; bottom: 14px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); font-size: 13px; }
   #compass { position: fixed; right: 20px; bottom: 16px; color: #fff; font: 700 18px sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
-  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #c9d6de; color: #234; font-size: 16px; }
+  #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: linear-gradient(#dfe8ee, #c3d2da); color: #234; font-size: 15px; z-index: 50; transition: opacity .6s; }
+  #loading.fade { opacity: 0; pointer-events: none; }
+  #loading h2 { margin: 0; font-size: 20px; letter-spacing: .05em; }
+  #loading .track { width: min(360px, 70vw); height: 6px; border-radius: 3px; background: rgba(35,52,68,.15); overflow: hidden; }
+  #loadbar { width: 0; height: 100%; background: #2f6f8f; transition: width .25s; }
+  /* indeterminate shimmer (transform-only → keeps moving on the compositor while JS builds the scene) */
+  #loading .track { position: relative; }
+  #loading .track::after { content: ''; position: absolute; top: 0; left: 0; width: 30%; height: 100%; background: #2f6f8f; opacity: .55; animation: shimmer 1.2s ease-in-out infinite; }
+  #loading.determinate .track::after { display: none; }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  #panel-toggle { position: absolute; right: 8px; top: 8px; min-width: 44px; height: 28px; font-size: 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #fff; cursor: pointer; padding: 0; flex: none !important; }
+  #panel.collapsed > :not(#panel-toggle) { display: none; }
+  #panel.collapsed { width: 60px; height: 44px; padding: 0; }
+  #panel.collapsed #panel-toggle { right: 8px; top: 8px; }
+  @media (max-width: 700px) {
+    #panel { left: 8px; top: 8px; width: calc(100vw - 16px); max-height: 55vh; overflow-y: auto; font-size: 12px; padding: 10px; }
+    #panel label { width: 48%; }
+    #info { left: 8px; right: 8px; width: auto; top: auto; bottom: 8px; transform: translateY(120%); }
+    #info.show { transform: none; }
+    #scale { display: none; }
+  }
   body.noui #panel, body.noui #info, body.noui #scale, body.noui #compass { display: none; }
 </style>
 <script type="importmap">
@@ -45,8 +71,9 @@
 </head>
 <body>
 <div id="app"></div>
-<div id="loading">正在程序化生成园区…</div>
+<div id="loading"><h2>半导体产业园区 · 三维模型</h2><div class="track"><div id="loadbar"></div></div><div id="loadtxt">正在加载三维模型，首次打开约需 5–20 秒…</div></div>
 <div id="panel">
+  <button id="panel-toggle" aria-label="收起/展开面板">菜单</button>
   <h1>半导体产业园区 · 程序化三维还原</h1>
   <div class="sub">占地 1,000 亩 / 666,667㎡ · 1 单位 = 1 m · 点击建筑查看信息</div>
   <div class="sec">视角</div>
@@ -67,6 +94,6 @@
 <div id="info"></div>
 
 <div id="scale">园区总占地 1,000亩 / 666,667㎡</div>
-<script type="module" src="./dist/main.js"></script>
+<script type="module" src="./dist/main.js?v=bd76b00c2d"></script>
 </body>
 </html>

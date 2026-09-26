@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { smoothClosed, roundedRectPts, polyline } from './util.js';
+import { smoothClosed, roundedRectPts, polyline } from './util.js?v=bd76b00c2d';
 /**
  * Site plan. 1 unit = 1 m, +X east, -Z north.
  *

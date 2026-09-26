@@ -7,12 +7,13 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { createMaterials } from './materials.js';
-import { buildFab, buildLab, buildSkyBridge } from './fab.js';
-import { buildAdmin, buildExhibitionHall, buildGlassRestaurant, buildChineseRestaurant, buildGate } from './architecture.js';
-import { buildLandscape } from './landscape.js';
-import { B, ROADS } from './layout.js';
-import { flagTex } from './textures.js';
+import { createMaterials } from './materials.js?v=bd76b00c2d';
+import { assetManager } from './pbr.js?v=bd76b00c2d';
+import { buildFab, buildLab, buildSkyBridge } from './fab.js?v=bd76b00c2d';
+import { buildAdmin, buildExhibitionHall, buildGlassRestaurant, buildChineseRestaurant, buildGate } from './architecture.js?v=bd76b00c2d';
+import { buildLandscape } from './landscape.js?v=bd76b00c2d';
+import { B, ROADS } from './layout.js?v=bd76b00c2d';
+import { flagTex } from './textures.js?v=bd76b00c2d';
 // ---------------------------------------------------------------- renderer / scene
 const app = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -69,7 +70,7 @@ let envRT = null;
 let mistRef = null; // set once the landscape exists
 let hdriEnv = null, isNight = false;
 // CC0 HDRI (Poly Haven kloofendal_48d_partly_cloudy_puresky) → PMREM image-based light for the day look
-new RGBELoader().load('public/hdri/kloofendal_48d_partly_cloudy_puresky_1k.hdr', (hdr) => {
+new RGBELoader(assetManager).load('public/hdri/kloofendal_48d_partly_cloudy_puresky_1k.hdr', (hdr) => {
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     hdriEnv = pmrem.fromEquirectangular(hdr).texture;
     hdr.dispose();
@@ -257,7 +258,8 @@ function labelTexture(title, area) {
 function makeLabel(def) {
     const { t, aspect } = labelTexture(def.title, def.area);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, depthWrite: false, sizeAttenuation: false, transparent: true, fog: false }));
-    const H = 0.044; // screen-space height (sizeAttenuation off)
+    // screen-space height (sizeAttenuation off); on portrait phones the viewport is narrow → smaller cards
+    const H = window.innerHeight > window.innerWidth * 1.1 ? 0.03 : 0.044;
     sp.scale.set(H * aspect, H, 1);
     sp.center.set(0.5, 0.0); // stem tip sits on the anchor
     sp.renderOrder = 10;
@@ -404,7 +406,21 @@ gtao.overrideVisibility = function () {
 composer.addPass(gtao);
 composer.addPass(new SMAAPass(window.innerWidth, window.innerHeight));
 composer.addPass(new OutputPass());
-let hq = new URLSearchParams(location.search).get('hq') !== '0';
+// phones / tablets: GTAO is too heavy for mobile GPUs → off by default (still available in the panel)
+const isMobile = matchMedia('(pointer: coarse)').matches || Math.min(window.innerWidth, window.innerHeight) < 700;
+let hq = new URLSearchParams(location.search).get('hq') !== '0' && !isMobile;
+{
+    const cb = document.getElementById('t-hq');
+    if (cb)
+        cb.checked = hq;
+}
+// panel collapse (starts collapsed on phones so the model is visible)
+{
+    const panel = document.getElementById('panel');
+    document.getElementById('panel-toggle')?.addEventListener('click', () => panel?.classList.toggle('collapsed'));
+    if (isMobile)
+        panel?.classList.add('collapsed');
+}
 let stillSince = performance.now();
 const camPrev = new THREE.Matrix4();
 function markDirty() { stillSince = performance.now(); }
@@ -537,7 +553,19 @@ function benchTick() {
         setSun(e, a);
     }
 }
-goView(new URLSearchParams(location.search).get('view') ?? 'S', true);
+// portrait screens: the fitted reference camera crops the campus → use a higher, narrower-aspect overview
+{
+    // same pitch as the 坐南朝北望 camera, distance solved so the 1000 m-wide site (+margin) fits horizontally
+    const fov = 55, aspect = window.innerWidth / window.innerHeight;
+    const hHalf = Math.atan(Math.tan(THREE.MathUtils.degToRad(fov / 2)) * aspect);
+    const dist = Math.min(3100, 520 / Math.tan(hHalf)); // 520 ≈ half site width + small margin
+    const dir = new THREE.Vector3(0, 782, 925).normalize();
+    views.portrait = { pos: [0, dir.y * dist, 60 + dir.z * dist], target: [0, 0, 60], fov };
+}
+const portrait = window.innerHeight > window.innerWidth * 1.1;
+if (portrait)
+    scene.fog.density = 0.00016; // the overview camera is ~2× farther; keep the haze comparable
+goView(new URLSearchParams(location.search).get('view') ?? (portrait ? 'portrait' : 'S'), true);
 const qs = new URLSearchParams(location.search);
 if (qs.get('labels') === '0') {
     labels.visible = false;
@@ -546,7 +574,38 @@ if (qs.get('labels') === '0') {
 if (qs.get('ui') === '0')
     document.body.classList.add('noui');
 frame();
-document.getElementById('loading')?.remove();
+// ---------------------------------------------------------------- loading screen
+// Stays up until every photographic texture and the HDRI have arrived and the final shaders are compiled,
+// so a viewer never sees half-textured surfaces. Hard timeout 30 s (then show whatever is there).
+{
+    const overlay = document.getElementById('loading');
+    const bar = document.getElementById('loadbar');
+    const txt = document.getElementById('loadtxt');
+    let done = false;
+    const finish = () => {
+        if (done)
+            return;
+        done = true;
+        renderer.compile(scene, camera); // compile the textured variants before revealing
+        renderer.shadowMap.needsUpdate = true;
+        window.__campus.assetsReady = true;
+        overlay?.classList.add('fade');
+        setTimeout(() => overlay?.remove(), 700);
+    };
+    assetManager.onProgress = (_url, loaded, total) => {
+        const pct = Math.round((loaded / Math.max(1, total)) * 100);
+        overlay?.classList.add('determinate');
+        if (bar)
+            bar.style.width = pct + '%';
+        if (txt)
+            txt.textContent = `正在加载材质与光照 ${pct}%`;
+    };
+    assetManager.onLoad = () => setTimeout(finish, 150);
+    setTimeout(finish, 30000);
+    // nothing queued (e.g. all cached and already loaded) → finish on the next frame
+    requestAnimationFrame(() => { if (assetManager.itemsTotal === 0)
+        finish(); });
+}
 window.__campus = { scene, camera, renderer, goView, entries, ready: true };
 // stats line
 let tris = 0, draws = 0;

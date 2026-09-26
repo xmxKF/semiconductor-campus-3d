@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import * as T from './textures.js';
-import { applyPBR } from './pbr.js';
+import * as T from './textures.js?v=bd76b00c2d';
+import { applyPBR } from './pbr.js?v=bd76b00c2d';
 /** Material library — ids mirror object-sculpt-spec.json `materials[].id`. */
 export function createMaterials() {
     const tile = T.roofTileTex();

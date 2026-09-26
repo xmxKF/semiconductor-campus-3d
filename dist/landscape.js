@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Batch, trs, rng, makeNoise2D, ribbon, flatPoly, extrudePoly, offsetClosed, pointInPoly, roundedRectPts, smoothClosed } from './util.js';
-import { B, POND, ISLANDS, FOUNTAINS, ROADS, INTERCHANGE, BLOCKERS, CAUSEWAY, DROPOFF, ROAD_Z, PERIM_Z, FRONTAGE_Z, kerbReturn, BEDS, HALL_FORECOURT, inRect, SITE } from './layout.js';
-import { softSpriteTex } from './textures.js';
+import { Batch, trs, rng, makeNoise2D, ribbon, flatPoly, extrudePoly, offsetClosed, pointInPoly, roundedRectPts, smoothClosed } from './util.js?v=bd76b00c2d';
+import { B, POND, ISLANDS, FOUNTAINS, ROADS, INTERCHANGE, BLOCKERS, CAUSEWAY, DROPOFF, ROAD_Z, PERIM_Z, FRONTAGE_Z, kerbReturn, BEDS, HALL_FORECOURT, inRect, SITE } from './layout.js?v=bd76b00c2d';
+import { softSpriteTex } from './textures.js?v=bd76b00c2d';
 const noise = makeNoise2D(2024);
 /** Terrain height outside the site: flat campus, gentle rolling land E/W/N, forested ridges south (ref A foreground / ref B skyline). */
 export function terrainHeight(x, z) {

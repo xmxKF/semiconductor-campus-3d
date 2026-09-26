@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Batch, trs, facadeBox, rng } from './util.js';
+import { Batch, trs, facadeBox, rng } from './util.js?v=bd76b00c2d';
 /**
  * Rooftop MEP kit shared by FABs, 掩膜厂 and 实验室.
  * Grounded in public fab references: roof-mounted packed-tower wet scrubbers (vertical

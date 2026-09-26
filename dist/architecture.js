@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Batch, trs, facadeBox, extrudePoly, flatPoly, roundedRectPts } from './util.js';
-import { buildRoof } from './roofs.js';
-import { RoofKit } from './fab.js';
+import { Batch, trs, facadeBox, extrudePoly, flatPoly, roundedRectPts } from './util.js?v=bd76b00c2d';
+import { buildRoof } from './roofs.js?v=bd76b00c2d';
+import { RoofKit } from './fab.js?v=bd76b00c2d';
 /** Box with glass facade texture whose bays keep a fixed metric size (bay m × floor m). */
 function glassBox(b, mat, w, h, d, x, y, z, bay = 16, rot = 0) {
     b.add(facadeBox(w, h, d, bay, h), mat, trs(x, y + h / 2, z, rot));
