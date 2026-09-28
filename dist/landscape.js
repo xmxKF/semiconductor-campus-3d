@@ -1,64 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { Batch, trs, rng, makeNoise2D, ribbon, flatPoly, extrudePoly, offsetClosed, pointInPoly, roundedRectPts, smoothClosed } from './util.js?v=bd76b00c2d';
-import { B, POND, ISLANDS, FOUNTAINS, ROADS, INTERCHANGE, BLOCKERS, CAUSEWAY, DROPOFF, ROAD_Z, PERIM_Z, FRONTAGE_Z, kerbReturn, BEDS, HALL_FORECOURT, inRect, SITE } from './layout.js?v=bd76b00c2d';
-import { softSpriteTex } from './textures.js?v=bd76b00c2d';
-const noise = makeNoise2D(2024);
-/** Terrain height outside the site: flat campus, gentle rolling land E/W/N, forested ridges south (ref A foreground / ref B skyline). */
-export function terrainHeight(x, z) {
-    const dx = Math.max(0, Math.abs(x) - 520), dzS = Math.max(0, z - 360), dzN = Math.max(0, -z - 430);
-    const edge = Math.hypot(dx, Math.max(dzS, dzN));
-    if (edge <= 0)
-        return 0;
-    const blend = Math.min(1, edge / 160);
-    const rolling = (noise.fbm(x / 260, z / 260, 4) - 0.35) * 30 * blend;
-    // ref A foreground: forested ridges rise right behind the south wall with misty valleys between
-    // ridged noise (1-|2n-1|) gives sharp forested spurs with deep valleys, like ref A's foreground
-    const ridged = (px, pz) => { let s = 0, a = 0.55, f = 1; for (let i = 0; i < 4; i++) {
-        s += a * (1 - Math.abs(2 * noise.noise(px * f, pz * f) - 1));
-        a *= 0.5;
-        f *= 2.1;
-    } return s; };
-    const southRidge = z > 345 ? Math.pow(Math.min(1, (z - 345) / 180), 1.1) * (20 + 230 * Math.pow(ridged(x / 260 + 7, z / 200), 2.2)) : 0;
-    const northRidge = z < -900 ? Math.min(1, (-z - 900) / 500) * (60 + 120 * noise.fbm(x / 500, z / 400 + 3, 5)) : 0;
-    return Math.max(0, rolling) + southRidge + northRidge;
-}
-function roadDistanceGrid(roads) {
-    // coarse spatial hash of road samples for fast "near road" queries
-    const cell = 20;
-    const map = new Map();
-    for (const r of roads) {
-        const P = r.closed ? [...r.pts, r.pts[0]] : r.pts;
-        for (let i = 0; i < P.length - 1; i++) {
-            const a = P[i], b = P[i + 1];
-            const L = a.distanceTo(b);
-            const n = Math.max(1, Math.ceil(L / 4));
-            for (let k = 0; k <= n; k++) {
-                const x = a.x + (b.x - a.x) * (k / n), z = a.y + (b.y - a.y) * (k / n);
-                const key = `${Math.floor(x / cell)},${Math.floor(z / cell)}`;
-                let arr = map.get(key);
-                if (!arr) {
-                    arr = [];
-                    map.set(key, arr);
-                }
-                arr.push({ x, z, w: r.width });
-            }
-        }
-    }
-    return (x, z, margin) => {
-        const cx = Math.floor(x / cell), cz = Math.floor(z / cell);
-        for (let i = -2; i <= 2; i++)
-            for (let j = -2; j <= 2; j++) {
-                const arr = map.get(`${cx + i},${cz + j}`);
-                if (!arr)
-                    continue;
-                for (const p of arr)
-                    if (Math.hypot(p.x - x, p.z - z) < p.w / 2 + margin)
-                        return true;
-            }
-        return false;
-    };
-}
+import { Batch, trs, rng, makeNoise2D, ribbon, flatPoly, extrudePoly, offsetClosed, roundedRectPts, smoothClosed } from './util.js?v=b3d95c4e38';
+import { B, POND, ISLANDS, FOUNTAINS, ROADS, TRAFFIC_ROUTE, INTERCHANGE, CAUSEWAY, DROPOFF, ROAD_Z, PERIM_Z, FRONTAGE_Z, VEHICLE_GATE_X, PARKING_AISLES, WALKS, BEDS, HALL_FORECOURT, SITE } from './layout.js?v=b3d95c4e38';
+import { softSpriteTex } from './textures.js?v=b3d95c4e38';
 export function buildLandscape(M, scene) {
     const m = M.M;
     const group = new THREE.Group();
@@ -66,25 +10,14 @@ export function buildLandscape(M, scene) {
     const parts = {};
     const updaters = [];
     const allRoads = [...ROADS, ...INTERCHANGE];
-    const nearRoad = roadDistanceGrid(allRoads);
-    // ------------------------------------------------------------- terrain
+    // Plain presentation ground: no inferred mountain terrain or off-site scenery.
     {
-        const W = 3600, D = 3000, nx = 240, nz = 200;
-        const g = new THREE.PlaneGeometry(W, D, nx, nz);
+        const g = new THREE.PlaneGeometry(20000, 20000);
         g.rotateX(-Math.PI / 2);
-        g.translate(0, 0, 150);
-        const pos = g.getAttribute('position');
-        const uv = g.getAttribute('uv');
-        for (let i = 0; i < pos.count; i++) {
-            const x = pos.getX(i), z = pos.getZ(i);
-            pos.setY(i, terrainHeight(x, z) - 0.3);
-            uv.setXY(i, x / 120, z / 120);
-        }
-        g.computeVertexNormals();
-        const mesh = new THREE.Mesh(g, m['forest-floor']);
-        mesh.receiveShadow = true;
-        mesh.name = 'hills';
-        mesh.userData.part = 'hills';
+        g.translate(0, -0.3, 0);
+        const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xf1f0ec, toneMapped: false }));
+        mesh.name = 'context-plane';
+        mesh.userData.part = 'context-plane';
         group.add(mesh);
         parts.terrain = mesh;
     }
@@ -106,11 +39,11 @@ export function buildLandscape(M, scene) {
                 rb.add(ribbon(r.pts.map(p => p), r.width + 1.2, r.closed, 0.06, 20), m['kerb']);
             }
         }
-        // kerb returns R10 at the entrance throat (frontage-road junction and perimeter-road T)
+        // Side vehicle junctions with unmarked asphalt over intersecting lane textures.
         rb.tag('roads');
-        for (const sx of [-1, 1]) {
-            rb.add(flatPoly(kerbReturn(sx * 8, FRONTAGE_Z + 6, 10, sx > 0 ? 0 : Math.PI / 2).map((p, i) => i === 0 ? new THREE.Vector2(sx * 18, FRONTAGE_Z + 16) : p), 0.1, 20), m['asphalt']);
-            rb.add(flatPoly(kerbReturn(sx * 8, PERIM_Z - 7, 10, sx > 0 ? -Math.PI / 2 : Math.PI).map((p, i) => i === 0 ? new THREE.Vector2(sx * 18, PERIM_Z - 17) : p), 0.1, 20), m['asphalt']);
+        for (const s of [-1, 1]) {
+            rb.add(flatPoly(roundedRectPts(s * VEHICLE_GATE_X, PERIM_Z, 20, 17, 5), 0.115, 20), m['asphalt']);
+            rb.add(flatPoly(roundedRectPts(s * VEHICLE_GATE_X, FRONTAGE_Z + 5, 22, 14, 5), 0.115, 20), m['asphalt']);
         }
         // highway median barrier and sound walls
         rb.tag('highway');
@@ -126,11 +59,19 @@ export function buildLandscape(M, scene) {
     {
         const wb = new Batch().tag('perimeter-wall');
         const P = roundedRectPts(0, 0, 990, 670, 80, 12);
+        const segments = [];
         for (let i = 0; i < P.length; i++) {
             const a = P[i], c = P[(i + 1) % P.length];
+            if (Math.abs(a.y + 335) < 0.001 && Math.abs(c.y + 335) < 0.001)
+                continue;
+            segments.push([a, c]);
+        }
+        for (const s of [-1, 1]) {
+            for (const [a, c] of [[[77, B.gate.z], [100, -335]], [[100, -335], [122, -335]], [[138, -335], [415, -335]]])
+                segments.push([new THREE.Vector2(s * a[0], a[1]), new THREE.Vector2(s * c[0], c[1])]);
+        }
+        for (const [a, c] of segments) {
             const L = a.distanceTo(c), rot = Math.atan2(-(c.y - a.y), c.x - a.x);
-            if (Math.abs((a.x + c.x) / 2) < 90 && (a.y + c.y) / 2 < -300)
-                continue; // gate opening
             wb.add(new THREE.BoxGeometry(L + 0.1, 1.2, 0.5), m['stone-plain'], trs((a.x + c.x) / 2, 0.6, (a.y + c.y) / 2, rot));
             const n = Math.max(1, Math.round(L / 3));
             for (let k = 0; k < n; k++) {
@@ -144,6 +85,20 @@ export function buildLandscape(M, scene) {
         wb.build(g);
         group.add(g);
         parts.wall = g;
+        const vb = new Batch().tag('vehicle-gates');
+        for (const s of [-1, 1]) {
+            const x = s * VEHICLE_GATE_X;
+            vb.box(3.8, 3.0, 4.4, m['dark-glass'], x + s * 10, 0.12, -338);
+            vb.box(4.4, 0.3, 5, m['stone-plain'], x + s * 10, 3.12, -338);
+            for (const lane of [-1, 1]) {
+                vb.box(0.45, 1.0, 0.45, m['steel-dark'], x + lane * 5.8, 0.12, -335);
+                vb.add(new THREE.BoxGeometry(4.6, 0.12, 0.15), m['white-paint'], trs(x + lane * 4.4, 2.8, -335, 0, 0, lane * 0.85));
+            }
+        }
+        const vg = new THREE.Group();
+        vg.name = 'vehicle-gates';
+        vb.build(vg);
+        group.add(vg);
     }
     // ------------------------------------------------------------- pond system
     {
@@ -289,6 +244,11 @@ export function buildLandscape(M, scene) {
         const lb = new Batch().tag('plaza');
         // entry plaza (granite) with planters and flower beds
         lb.add(flatPoly(roundedRectPts(B.plaza.x, B.plaza.z, B.plaza.w, B.plaza.d, 6), 0.08, 8), m['granite-paving']);
+        for (const x of [-8, 8])
+            lb.box(0.5, 0.025, 70, m['stone-plain'], x, 0.09, -287);
+        for (const walk of WALKS)
+            lb.add(ribbon(walk, 5, false, 0.16, 8), m['granite-paving']);
+        lb.box(310, 0.035, 3, m['granite-paving'], 0, 0.13, -343);
         // hall forecourt: the whole peninsula is paved (pond water/kerb render on top where they overlap)
         lb.add(flatPoly(roundedRectPts(HALL_FORECOURT.x, HALL_FORECOURT.z, HALL_FORECOURT.w, HALL_FORECOURT.d, 4), 0.07, 8), m['granite-paving']);
         // discrete raised planting beds: granite kerb, soil, clipped shrubs (and flowers in the shrub beds)
@@ -328,7 +288,7 @@ export function buildLandscape(M, scene) {
         }
         // zebra crossings at the gate spine and the forecourt ring; plaza benches + lamp bollards
         // crossings: gate spine; drop-off lane at the stair axis; shared road at the mall axis
-        for (const [cx, cz, len, rot] of [[0, FRONTAGE_Z + 12, 16, Math.PI / 2], [0, PERIM_Z, 14, 0], [0, DROPOFF.zN, 8, 0], [0, ROAD_Z, 11, 0]]) {
+        for (const [cx, cz, len, rot] of [[-130, -344, 12, Math.PI / 2], [130, -344, 12, Math.PI / 2], [-190, -303, 17, Math.PI / 2], [190, -303, 17, Math.PI / 2], [0, DROPOFF.zN, 8, 0], [0, ROAD_Z, 11, 0]]) {
             for (let k = -3; k <= 3; k++)
                 lb.add(new THREE.BoxGeometry(0.6, 0.04, len), m['white-paint'], trs(cx + Math.cos(rot) * k * 1.2, 0.2, cz - Math.sin(rot) * k * 1.2, rot));
         }
@@ -363,7 +323,19 @@ export function buildLandscape(M, scene) {
             for (let i = 0; i < pos.count; i++)
                 uv.setXY(i, (pos.getX(i) + lot.w / 2) / 40, (pos.getZ(i) + lot.d / 2) / 20);
             pb.add(g, m['parking'], trs(lot.x, 0.09, lot.z));
-            pb.add(ribbon(roundedRectPts(lot.x, lot.z, lot.w + 2, lot.d + 2, 4), 1.4, true, 0.12, 10), m['kerb']);
+            const lanes = PARKING_AISLES.filter(x => Math.abs(x - lot.x) < lot.w / 2);
+            for (const x of lanes)
+                pb.box(8, 0.025, lot.d, m['asphalt'], x, 0.13, lot.z);
+            pb.box(lot.w, 0.025, 8, m['asphalt'], lot.x, 0.13, z0 + 7);
+            pb.box(lot.w, 0.025, 8, m['asphalt'], lot.x, 0.13, lot.z + lot.d / 2 - 7);
+            const edge = lot.z + lot.d / 2 + 1;
+            const breaks = [x0, ...lanes.flatMap(x => [x - 5, x + 5]), x0 + lot.w];
+            for (let k = 0; k < breaks.length; k += 2)
+                pb.box(breaks[k + 1] - breaks[k], 0.14, 1.2, m['kerb'], (breaks[k + 1] + breaks[k]) / 2, 0, edge);
+            pb.box(lot.w, 0.14, 1.2, m['kerb'], lot.x, 0, z0 - 1);
+            for (const x of [x0 - 1, x0 + lot.w + 1])
+                pb.box(1.2, 0.08, lot.d, m['kerb'], x, 0, lot.z);
+            pb.box(12, 0.025, 5, m['granite-paving'], Math.sign(lot.x) * 305, 0.16, -200);
             // tree islands every 3rd module
             for (let tz = 0; tz < lot.d / 20; tz++)
                 for (let tx = 0; tx < lot.w / 40; tx++) {
@@ -371,6 +343,8 @@ export function buildLandscape(M, scene) {
                         for (let k = 0; k < 16; k++) {
                             const x = x0 + tx * 40 + 1.25 + k * 2.5, z = z0 + tz * 20 + row;
                             if (x > lot.x + lot.w / 2 - 2 || z > lot.z + lot.d / 2 - 2)
+                                continue;
+                            if (lanes.some(a => Math.abs(x - a) < 5.4) || z < z0 + 12 || z > lot.z + lot.d / 2 - 12)
                                 continue;
                             if (r() < 0.86)
                                 carPos.push({ x, z, r: row < 10 ? 0 : Math.PI });
@@ -447,43 +421,18 @@ export function buildLandscape(M, scene) {
         parts.lamps = lamps;
     }
     // ------------------------------------------------------------- trees
-    const treeCounts = buildTrees(M, group, nearRoad, parts);
+    const treeCounts = buildTrees(group, parts);
     void treeCounts;
-    // ------------------------------------------------------------- bamboo grove beside the Japanese restaurant (ref A, yellow-green clump)
-    {
-        const r = rng(88);
-        const culm = new THREE.CylinderGeometry(0.06, 0.09, 1, 5);
-        culm.translate(0, 0.5, 0);
-        const leaf = new THREE.IcosahedronGeometry(1, 1);
-        leaf.scale(0.9, 1.8, 0.9);
-        const pts = [];
-        for (let i = 0; i < 260; i++) {
-            const a = r() * Math.PI * 2, d = Math.sqrt(r()) * 20;
-            const x = 222 + Math.cos(a) * d * 1.1, z = -80 + Math.sin(a) * d * 0.9;
-            if (pointInPoly(x, z, POND) || nearRoad(x, z, 2))
-                continue;
-            pts.push({ x, z, h: 9 + r() * 6 });
-        }
-        const culms = new THREE.InstancedMesh(culm, new THREE.MeshStandardMaterial({ color: 0x8a9a4a, roughness: 0.6 }), pts.length);
-        const leaves = new THREE.InstancedMesh(leaf, new THREE.MeshStandardMaterial({ color: 0x9fb54f, roughness: 0.85 }), pts.length);
-        const c = new THREE.Color();
-        pts.forEach((p, i) => {
-            const lean = (r() - 0.5) * 0.12;
-            culms.setMatrixAt(i, trs(p.x, 0, p.z, 0, lean, lean, 1, p.h, 1));
-            leaves.setMatrixAt(i, trs(p.x + lean * p.h, p.h * 0.82, p.z - lean * p.h, r() * 6, 0, 0, 1.3, 1.6, 1.3));
-            leaves.setColorAt(i, c.setHSL(0.2 + r() * 0.04, 0.45, 0.42 + r() * 0.12));
-        });
-        culms.castShadow = leaves.castShadow = true;
-        const g = new THREE.Group();
-        g.name = 'bamboo';
-        g.add(culms, leaves);
-        group.add(g);
-        parts.bamboo = g;
-    }
     // ------------------------------------------------------------- campus traffic on the core loop
     {
-        const loop = ROADS[1];
-        const curve = new THREE.CatmullRomCurve3(loop.pts.map(p => new THREE.Vector3(p.x, 0.15, p.y)), true);
+        // Close traffic via the outer road, never across the pedestrian-only entrance court.
+        const trafficPts = TRAFFIC_ROUTE;
+        const curve = new THREE.CurvePath();
+        for (let i = 0; i < trafficPts.length - 1; i++) {
+            const a = trafficPts[i], b = trafficPts[i + 1];
+            if (a.distanceTo(b) > 0.01)
+                curve.add(new THREE.LineCurve3(new THREE.Vector3(a.x, .15, a.y), new THREE.Vector3(b.x, .15, b.y)));
+        }
         const L = curve.getLength();
         const carGeo = parts.carGeo.geometry;
         const N = 26;
@@ -550,54 +499,6 @@ export function buildLandscape(M, scene) {
         };
         tick(0);
         updaters.push((_, dt) => tick(dt));
-    }
-    // ------------------------------------------------------------- off-site lakes (ref A: lake beyond the NW corner, pond W of parking)
-    {
-        const lb = new Batch();
-        lb.add(flatPoly(smoothClosed([[-760, -600], [-650, -660], [-540, -610], [-560, -500], [-680, -470], [-770, -520]], 80), 0.5, 30), m['water']);
-        lb.add(flatPoly(smoothClosed([[-600, -250], [-545, -275], [-515, -230], [-560, -195], [-610, -210]], 50), 0.4, 30), m['water']);
-        lb.add(flatPoly(smoothClosed([[560, -250], [610, -270], [650, -235], [610, -200], [565, -215]], 50), 0.4, 30), m['water']);
-        const g = new THREE.Group();
-        g.name = 'lakes';
-        lb.build(g, { castShadow: false });
-        group.add(g);
-    }
-    // ------------------------------------------------------------- mist over the southern hills (both refs)
-    {
-        const mat = new THREE.SpriteMaterial({ map: softSpriteTex(), color: 0xf4f6f8, transparent: true, opacity: 0.42, depthWrite: false, fog: false, toneMapped: false });
-        const mist = new THREE.Group();
-        mist.name = 'mist';
-        const r = rng(12);
-        for (let i = 0; i < 220; i++) {
-            const s = new THREE.Sprite(mat);
-            const x = (r() - 0.5) * 2600, z = 380 + r() * 900;
-            // settle into valleys: sample a few candidates and keep the lowest ground
-            let bx = x, bz = z, bh = terrainHeight(x, z);
-            for (let k = 0; k < 4; k++) {
-                const cx = x + (r() - 0.5) * 160, cz = z + (r() - 0.5) * 120;
-                const h = terrainHeight(cx, cz);
-                if (h < bh) {
-                    bx = cx;
-                    bz = cz;
-                    bh = h;
-                }
-            }
-            s.position.set(bx, bh + 22 + r() * 20, bz);
-            const sc = 70 + r() * 170;
-            s.scale.set(sc, sc * 0.32, 1);
-            mist.add(s);
-        }
-        for (let i = 0; i < 26; i++) {
-            const s = new THREE.Sprite(mat);
-            const x = (r() - 0.5) * 3000, z = -1000 - r() * 400;
-            s.position.set(x, terrainHeight(x, z) + 20 + r() * 40, z);
-            const sc = 250 + r() * 250;
-            s.scale.set(sc, sc * 0.3, 1);
-            mist.add(s);
-        }
-        group.add(mist);
-        parts.mist = mist;
-        updaters.push((t) => mist.children.forEach((s, i) => { s.position.x += Math.sin(t * 0.05 + i) * 0.02; }));
     }
     scene.add(group);
     const pruneTrees = (boxes) => {
@@ -697,100 +598,10 @@ function canopyGeometry(seed, lobes, detail, shape) {
     smooth.computeVertexNormals();
     return smooth;
 }
-function buildTrees(M, group, nearRoad, parts) {
+function buildTrees(group, parts) {
     const r = rng(31337);
     const trees = [];
-    const blocked = (x, z, margin = 4) => {
-        for (const b of BLOCKERS)
-            if (inRect(x, z, b, margin))
-                return true;
-        if (pointInPoly(x, z, POND))
-            return true;
-        if (nearRoad(x, z, 3))
-            return true;
-        return false;
-    };
-    const inSite = (x, z) => Math.abs(x) < 490 && Math.abs(z) < 330;
-    // every paved / sealed surface drawn in this file or in architecture.ts (world coordinates)
-    const PAVED = [
-        B.plaza, HALL_FORECOURT, { x: 0, z: -20, w: 150, d: 22 }, // gate plaza, hall forecourt, admin north plaza
-        { x: 0, z: 76, w: 140, d: 12 }, { x: 0, z: -341, w: 150, d: 10 }, // admin south plaza, gate apron
-        B.parkingNW, B.parkingNE,
-        { x: B.fab2.x, z: B.fab2.z, w: B.fab2.w + 52, d: B.fab2.d + 32 }, { x: B.fab1.x, z: B.fab1.z, w: B.fab1.w + 52, d: B.fab1.d + 32 },
-        { x: B.mask.x, z: B.mask.z, w: B.mask.w + 24, d: B.mask.d + 24 }, { x: B.lab.x, z: B.lab.z, w: B.lab.w + 24, d: B.lab.d + 24 },
-        { x: B.admin.x, z: B.admin.z, w: B.admin.w + 32, d: B.admin.d + 24 },
-        { x: 0, z: (CAUSEWAY.z0 + CAUSEWAY.z1) / 2, w: 9, d: CAUSEWAY.z1 - CAUSEWAY.z0 }, // causeway deck
-        { x: 0, z: B.mall.z, w: 8, d: B.mall.d }, // mall spine path
-    ];
-    const pondHard = offsetClosed(POND, 6);
-    const onGrass = (x, z, r = 1.5) => {
-        if (PAVED.some(p => inRect(x, z, p, r)))
-            return false;
-        if (pointInPoly(x, z, pondHard) && !ISLANDS.some(i => pointInPoly(x, z, i)))
-            return false; // water + stone kerb ring
-        if (nearRoad(x, z, r + 1.5))
-            return false;
-        if (Math.abs(z - FRONTAGE_Z) < 20 || Math.abs(z + 392) < 26)
-            return false; // frontage verge / sound wall / expressway
-        return true;
-    };
-    const planters = [];
-    const push = (x, z, s, kind) => { if (onGrass(x, z, s * 0.35))
-        trees.push({ x, z, y: 0, s, kind, tint: r() }); };
-    // 1) street trees both sides of internal roads
-    for (const rd of ROADS) {
-        if (rd.kind === 'highway')
-            continue;
-        const P = rd.closed ? [...rd.pts, rd.pts[0]] : rd.pts;
-        for (let i = 0; i < P.length - 1; i++) {
-            const a = P[i], b = P[i + 1], L = a.distanceTo(b);
-            const tx = (b.x - a.x) / L, tz = (b.y - a.y) / L;
-            for (let d = 0; d < L; d += 15) {
-                for (const side of [-1, 1]) {
-                    const off = rd.width / 2 + 6;
-                    const x = a.x + tx * d - tz * off * side, z = a.y + tz * d + tx * off * side;
-                    if (!inSite(x, z) && Math.abs(z + 352) > 20)
-                        continue;
-                    if (blocked(x, z, 5))
-                        continue;
-                    push(x, z, 4.2 + r() * 1.4, rd === ROADS[1] && r() < 0.3 ? 'blossom' : 'broad');
-                }
-            }
-        }
-    }
-    // 2) pond shoreline blossom belt (ref: pink cherry ring around the lake)
-    for (const off of [7, 15]) {
-        const ring = offsetClosed(POND, off);
-        for (let i = 0; i < ring.length; i += 2) {
-            const p = ring[i];
-            if (r() < 0.5 || blocked(p.x, p.y, 4))
-                continue;
-            push(p.x + (r() - 0.5) * 3, p.y + (r() - 0.5) * 3, 4.2 + r() * 1.6, r() < 0.7 ? 'blossom' : 'broad');
-        }
-    }
-    // 3) islands
-    for (const isl of ISLANDS) {
-        let cx = 0, cz = 0;
-        isl.forEach(p => { cx += p.x; cz += p.y; });
-        cx /= isl.length;
-        cz /= isl.length;
-        for (let k = 0; k < 4; k++)
-            push(cx + (r() - 0.5) * 14, cz + (r() - 0.5) * 7, 3 + r() * 1.5, r() < 0.7 ? 'blossom' : 'broad');
-    }
-    // 4) causeway columnar rows
-    for (let z = CAUSEWAY.z0 + 4; z <= CAUSEWAY.z1 - 4; z += 10)
-        for (const sx of [-1, 1])
-            trees.push({ x: sx * 7.5, z, y: 1, s: 3.2, kind: 'column', tint: r() });
-    // 5) green mall avenues + blossom accents
-    for (let z = B.mall.z - B.mall.d / 2 + 6; z <= B.mall.z + B.mall.d / 2 - 6; z += 12) {
-        for (const sx of [-1, 1]) {
-            push(sx * 24, z, 3.6 + r(), 'column');
-            push(sx * 36, z, 3.8 + r(), 'broad');
-        }
-        if (r() < 0.5)
-            push((r() - 0.5) * 20, z, 3.4, 'blossom');
-    }
-    // 6) plaza tree grid
+    // Only the deliberately arranged entrance tree rows and forecourt planting beds remain.
     for (const bd of BEDS) {
         if (bd.kind === 'linear')
             for (let z = bd.z - bd.d / 2 + 3; z <= bd.z + bd.d / 2 - 3; z += 7)
@@ -801,61 +612,16 @@ function buildTrees(M, group, nearRoad, parts) {
                 trees.push({ x: bd.x + bd.w * 0.25, z: bd.z + 2, y: 0.6, s: 2.3, kind: 'broad', tint: r() });
         }
     }
-    // 7) landscape fill inside site (jittered grid)
-    const pondHalo = offsetClosed(POND, 32);
-    for (let x = -485; x <= 485; x += 13)
-        for (let z = -325; z <= 325; z += 13) {
-            const px = x + (r() - 0.5) * 8, pz = z + (r() - 0.5) * 8;
-            if (blocked(px, pz, 8))
-                continue;
-            const nearPond = pointInPoly(px, pz, pondHalo);
-            const dens = nearPond ? 0.55 : 0.36;
-            if (r() > dens)
-                continue;
-            const inMall = Math.abs(px) < 50 && pz > ROAD_Z;
-            push(px, pz, 4 + r() * 2.2, (nearPond && r() < 0.5) || (inMall && r() < 0.3) ? 'blossom' : r() < 0.1 ? 'conifer' : r() < 0.06 ? 'blossom' : 'broad');
-        }
-    // 8) forest outside the site (terrain-following), lower poly
-    for (let x = -1700; x <= 1700; x += 13)
-        for (let z = -1300; z <= 1600; z += 13) {
-            // 13 m grid; beyond ~900 m keep roughly the old 17 m density (fog-hazed anyway)
-            if (Math.hypot(x, z) > 900 && r() < 0.42)
-                continue;
-            const px = x + (r() - 0.5) * 11, pz = z + (r() - 0.5) * 11;
-            if (Math.abs(px) < 505 && Math.abs(pz) < 345)
-                continue;
-            if (Math.abs(pz + 392) < 34 || Math.abs(pz + 352) < 10)
-                continue; // highway corridor
-            if (Math.abs(px - 720) < 22 && pz < -300)
-                continue;
-            if (px > 560 && px < 880 && pz < -400 && pz > -545)
-                continue;
-            if (Math.hypot(px + 655, pz + 565) < 125)
-                continue; // lake (ref A top-left)
-            if (Math.hypot(px + 560, pz + 235) < 60 || Math.hypot(px - 605, pz + 235) < 60)
-                continue;
-            // thin the far belt (>800 m from the campus centre) — it is fog-hazed in both refs
-            const far = Math.hypot(px, pz) > 800;
-            if (far && r() < 0.45)
-                continue;
-            const h = terrainHeight(px, pz);
-            trees.push({ x: px, z: pz, y: h, s: (far ? 10 : 9) + r() * 4, kind: r() < 0.08 ? 'conifer' : 'forest', tint: r() });
-        }
     const geos = {
         broad: canopyGeometry(1, 3, 1, 'round'),
         column: canopyGeometry(2, 3, 1, 'column'),
         blossom: canopyGeometry(3, 7, 1, 'umbrella'),
-        conifer: canopyGeometry(4, 1, 0, 'cone'),
-        // off-site forest seen only from aerial distance: detail-0 lobes, smooth normals (~100 tris)
-        forest: canopyGeometry(5, 4, 0, 'blob'),
     };
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
     const palettes = {
         broad: [0x3d6230, 0x345a2c, 0x4a7236, 0x5a7f3d, 0x2c4d27, 0x6a8a44, 0x7a8f45],
         column: [0x3a6030, 0x4b733a, 0x5c8240, 0x6f8a3e],
         blossom: [0xeec3d3, 0xf2d3df, 0xe4aec3, 0xf5e3ea, 0xd697b1, 0xe9c9d2],
-        conifer: [0x2f5a32, 0x355f36, 0x28502c],
-        forest: [0x26432a, 0x2e5030, 0x375a34, 0x213a24, 0x42663a, 0x2b4a2c, 0x4d6b3c],
     };
     const trunkGeo = new THREE.CylinderGeometry(0.08, 0.12, 1, 5);
     trunkGeo.translate(0, 0.5, 0);
@@ -863,13 +629,6 @@ function buildTrees(M, group, nearRoad, parts) {
     const out = new THREE.Group();
     out.name = 'trees';
     out.userData.part = 'trees';
-    if (planters.length) {
-        const kerb = new THREE.InstancedMesh(new THREE.CylinderGeometry(2.4, 2.5, 0.55, 20), new THREE.MeshStandardMaterial({ color: 0xcfcbc2, roughness: 0.85 }), planters.length);
-        const soil = new THREE.InstancedMesh(new THREE.CylinderGeometry(2.05, 2.05, 0.58, 20), new THREE.MeshStandardMaterial({ color: 0x5f7a3c, roughness: 1 }), planters.length);
-        planters.forEach((p, i) => { kerb.setMatrixAt(i, trs(p.x, 0.28, p.z)); soil.setMatrixAt(i, trs(p.x, 0.3, p.z)); });
-        kerb.receiveShadow = soil.receiveShadow = true;
-        out.add(kerb, soil);
-    }
     const c = new THREE.Color();
     const siteTrunks = [];
     for (const kind of Object.keys(geos)) {
@@ -885,7 +644,7 @@ function buildTrees(M, group, nearRoad, parts) {
         for (const list of tiles.values()) {
             const im = new THREE.InstancedMesh(geos[kind], mat, list.length);
             list.forEach((t, i) => {
-                const lift = kind === 'forest' || kind === 'conifer' ? 0 : t.s * 0.35;
+                const lift = t.s * 0.35;
                 im.setMatrixAt(i, trs(t.x, t.y + lift, t.z, t.tint * 6, 0, 0, t.s, t.s * (kind === 'column' ? 1.1 : 1), t.s));
                 const pal = palettes[kind];
                 c.setHex(pal[Math.floor(t.tint * pal.length) % pal.length]);
@@ -893,13 +652,12 @@ function buildTrees(M, group, nearRoad, parts) {
                 if (kind !== 'blossom')
                     c.offsetHSL(0.01, -0.14, -0.01);
                 im.setColorAt(i, c);
-                if (kind !== 'forest' && kind !== 'conifer')
-                    siteTrunks.push(t);
+                siteTrunks.push(t);
             });
-            im.castShadow = kind !== 'forest';
-            im.receiveShadow = kind !== 'forest' && kind !== 'conifer'; // off-site forest is outside the shadow frustum
+            im.castShadow = true;
+            im.receiveShadow = true;
             im.name = `trees-${kind}`;
-            im.userData.part = kind === 'blossom' ? 'tree-blossom' : kind === 'conifer' || kind === 'forest' ? 'tree-conifer' : 'tree-broadleaf';
+            im.userData.part = kind === 'blossom' ? 'tree-blossom' : 'tree-broadleaf';
             im.computeBoundingSphere();
             out.add(im);
         }

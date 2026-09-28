@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Batch, trs, facadeBox, extrudePoly, flatPoly, roundedRectPts } from './util.js?v=bd76b00c2d';
-import { buildRoof } from './roofs.js?v=bd76b00c2d';
-import { RoofKit } from './fab.js?v=bd76b00c2d';
+import { Batch, trs, facadeBox, extrudePoly, flatPoly, roundedRectPts } from './util.js?v=b3d95c4e38';
+import { buildRoof } from './roofs.js?v=b3d95c4e38';
+import { RoofKit } from './fab.js?v=b3d95c4e38';
 /** Box with glass facade texture whose bays keep a fixed metric size (bay m × floor m). */
 function glassBox(b, mat, w, h, d, x, y, z, bay = 16, rot = 0) {
     b.add(facadeBox(w, h, d, bay, h), mat, trs(x, y + h / 2, z, rot));
@@ -330,7 +330,7 @@ export function buildChineseRestaurant(M, cx, cz, deckDir) {
     b.build(bodyG);
     r.build(roofG);
     group.position.set(cx, 0, cz);
-    group.userData.info = { id: 'rest-cn', title: '中式餐厅', area: '3,000㎡', desc: '临水中式餐厅：木构暖光玻璃立面，深灰瓦歇山屋面（小起翘）、配殿与后厨，回廊、石灯与临水平台，旁有竹林。' };
+    group.userData.info = { id: 'rest-cn', title: '中式餐厅', area: '3,000㎡', desc: '临水中式餐厅：木构暖光玻璃立面，深灰瓦歇山屋面（小起翘）、配殿与后厨，回廊、石灯与临水平台。' };
     return { group, explode: [{ obj: roofG, dir: new THREE.Vector3(0, 12, 0) }] };
 }
 /** Main ceremonial gate (ref B crop): 4 stone pylons, lintels + plaque, side walls, guard booths, flagpoles. */
@@ -377,14 +377,14 @@ export function buildGate(M, cx, cz, flagMats) {
         b.tag('gate');
         b.add(facadeBox(6, 3.4, 4, 3, 3.4), m['dark-glass'], trs(sx * 22.25, 1.7, 0));
         b.box(7, 0.4, 5, m['stone-plain'], sx * 22.25, 3.4, 0);
-        // lift barriers
-        b.box(8, 0.15, 0.15, m['white-paint'], sx * 4.6, 1.1, 1);
+        // Pedestrian portal: vehicle barriers are at the separate side entrances.
     }
     b.tag('gate');
     // entry apron paving and planters in front
-    // apron either side of the entrance throat (the 16 m carriageway itself stays asphalt)
-    for (const sx of [-1, 1])
-        b.box(66, 0.12, 10, m['granite-paving'], sx * 42, 0, -7);
+    // Continuous paving from the public footway, through the gate, to the internal plaza.
+    b.box(150, 0.12, 24, m['granite-paving'], 0, 0, -10);
+    for (const x of [-7, -3.5, 3.5, 7])
+        b.add(new THREE.CylinderGeometry(0.22, 0.26, 0.85, 10), m['steel-dark'], trs(x, 0.5, 4));
     // flagpoles (6 per side)
     b.tag('flagpoles');
     const flags = [];
@@ -405,7 +405,7 @@ export function buildGate(M, cx, cz, flagMats) {
         }
     b.build(group);
     group.position.set(cx, 0, cz);
-    group.userData.info = { id: 'gate', title: '园区主入口大门', area: '', desc: '四柱三门石材牌楼式大门，额枋匾额、两翼门卫岗亭与挡墙，前侧 12 面旗杆，南北向中轴起点。' };
+    group.userData.info = { id: 'gate', title: '园区主入口大门', area: '', desc: '向厂区内退让的四柱三门礼仪入口，与展示接待广场连续相接。中轴步行通行，车辆经东西两侧独立门禁进入园区道路。' };
     return { group, explode: [], flags };
 }
 export { extrudePoly };

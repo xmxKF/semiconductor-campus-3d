@@ -7,13 +7,13 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { createMaterials } from './materials.js?v=bd76b00c2d';
-import { assetManager } from './pbr.js?v=bd76b00c2d';
-import { buildFab, buildLab, buildSkyBridge } from './fab.js?v=bd76b00c2d';
-import { buildAdmin, buildExhibitionHall, buildGlassRestaurant, buildChineseRestaurant, buildGate } from './architecture.js?v=bd76b00c2d';
-import { buildLandscape } from './landscape.js?v=bd76b00c2d';
-import { B, ROADS } from './layout.js?v=bd76b00c2d';
-import { flagTex } from './textures.js?v=bd76b00c2d';
+import { createMaterials } from './materials.js?v=b3d95c4e38';
+import { assetManager } from './pbr.js?v=b3d95c4e38';
+import { buildFab, buildLab, buildSkyBridge } from './fab.js?v=b3d95c4e38';
+import { buildAdmin, buildExhibitionHall, buildGlassRestaurant, buildChineseRestaurant, buildGate } from './architecture.js?v=b3d95c4e38';
+import { buildLandscape } from './landscape.js?v=b3d95c4e38';
+import { B, ROADS } from './layout.js?v=b3d95c4e38';
+import { flagTex } from './textures.js?v=b3d95c4e38';
 // ---------------------------------------------------------------- renderer / scene
 const app = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -29,7 +29,7 @@ renderer.toneMappingExposure = 0.72;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 app.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0xc9d6de, 0.00034);
+scene.background = new THREE.Color(0xf1f0ec);
 const camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 4, 9000);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -49,7 +49,7 @@ su.turbidity.value = 6;
 su.rayleigh.value = 1.4;
 su.mieCoefficient.value = 0.004;
 su.mieDirectionalG.value = 0.82;
-scene.add(sky);
+// Sky lighting is retained for reflections, while the visible background stays neutral.
 const sunDir = new THREE.Vector3();
 const sun = new THREE.DirectionalLight(0xfff1dc, 2.6);
 sun.castShadow = true;
@@ -67,7 +67,6 @@ const hemi = new THREE.HemisphereLight(0xcfe3f5, 0x4e5e3c, 0.45);
 scene.add(hemi);
 const pmrem = new THREE.PMREMGenerator(renderer);
 let envRT = null;
-let mistRef = null; // set once the landscape exists
 let hdriEnv = null, isNight = false;
 // CC0 HDRI (Poly Haven kloofendal_48d_partly_cloudy_puresky) → PMREM image-based light for the day look
 new RGBELoader(assetManager).load('public/hdri/kloofendal_48d_partly_cloudy_puresky_1k.hdr', (hdr) => {
@@ -90,7 +89,11 @@ function setSun(elevDeg, azimDeg, night = false) {
     hemi.intensity = night ? 0.7 : 0.45;
     hemi.color.set(night ? 0x5a6a9a : 0xcfe3f5);
     renderer.toneMappingExposure = night ? 1.25 : 0.72;
-    scene.fog.color.set(night ? 0x1a2230 : 0xc9d6de);
+    const backdrop = night ? 0x262c34 : 0xf1f0ec;
+    scene.background.set(backdrop);
+    const ground = scene.getObjectByName('context-plane');
+    if (ground)
+        ground.material.color.set(backdrop);
     // environment from sky for glass & water reflections
     const envScene = new THREE.Scene();
     const s2 = new Sky();
@@ -105,9 +108,6 @@ function setSun(elevDeg, azimDeg, night = false) {
     renderer.shadowMap.needsUpdate = true;
     scene.environmentIntensity = night ? 0.12 : (hdriEnv ? 0.75 : 0.55);
     isNight = night;
-    // unlit mist sprites must dim with the sky
-    mistRef?.traverse(o => { if (o.isSprite)
-        o.material.color.set(night ? 0x2c3442 : 0xf4f6f8); });
     // night: lit interiors — boost existing emissive glazing, let curtain-wall panes self-illuminate
     scene.traverse(o => {
         const mm = o.material;
@@ -136,7 +136,6 @@ root.name = 'root';
 root.userData.part = 'root';
 scene.add(root);
 const land = buildLandscape(mats, root);
-mistRef = land.parts.mist;
 const entries = [];
 const pickables = [];
 function add(key, p) {
@@ -175,7 +174,8 @@ add('gate', gate);
     const n = land.pruneTrees(boxes);
     console.log('[campus] trees pruned against buildings:', n);
 }
-// ?check=1 : building-vs-road clearance audit (every solid building mesh box vs every road sample incl. width)
+let clearanceAudit = [];
+// Coarse broad-phase audit; merged-mesh boxes include empty spans, so hits require geometric review.
 if (new URLSearchParams(location.search).get('check') === '1') {
     const hits = [];
     for (const e of entries) {
@@ -206,6 +206,7 @@ if (new URLSearchParams(location.search).get('check') === '1') {
     pre.id = 'check';
     pre.textContent = JSON.stringify(hits);
     document.body.appendChild(pre);
+    clearanceAudit = hits;
 }
 // ---------------------------------------------------------------- labels (callouts as in the refs)
 /** Callout labels as WebGL sprites (white rounded card + stem, like the reference callouts).
@@ -300,6 +301,7 @@ const views = {
     cFabN: { pos: [-60, 90, 60], target: [-150, 5, 150], fov: 40 },
     gateOut: { pos: [70, 70, -430], target: [0, 0, -335], fov: 40 },
     gateTop: { pos: [0, 260, -330], target: [0, 0, -329], fov: 40 },
+    circulation: { pos: [0, 540, -470], target: [0, 0, -235], fov: 46 },
     hallN: { pos: [0, 75, -330], target: [0, 2, -228], fov: 42 },
     hallNTop: { pos: [0, 200, -240], target: [0, 0, -239], fov: 40 },
     adminN: { pos: [0, 7, -40], target: [0, 5, -12], fov: 55 },
@@ -315,7 +317,43 @@ const views = {
     orbitN: { pos: [0, 620, -1150], target: [0, 0, 0], fov: 38 },
 };
 let tween = null;
+const panKeys = new Set();
+const arrowKeys = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+const isFormControl = (target) => target instanceof HTMLElement && !!target.closest('input, textarea, select, [contenteditable], [role="slider"]');
+window.addEventListener('keydown', ev => {
+    if (!arrowKeys.has(ev.key) || isFormControl(ev.target) || ev.altKey || ev.ctrlKey || ev.metaKey)
+        return;
+    ev.preventDefault();
+    panKeys.add(ev.key);
+    tween = null;
+    markDirty();
+});
+window.addEventListener('keyup', ev => { panKeys.delete(ev.key); });
+window.addEventListener('blur', () => panKeys.clear());
+document.addEventListener('visibilitychange', () => { if (document.hidden)
+    panKeys.clear(); });
+document.addEventListener('focusin', ev => { if (isFormControl(ev.target))
+    panKeys.clear(); });
+const panRight = new THREE.Vector3(), panForward = new THREE.Vector3(), panStep = new THREE.Vector3();
+function keyboardPan(dt) {
+    const x = Number(panKeys.has('ArrowRight')) - Number(panKeys.has('ArrowLeft'));
+    const z = Number(panKeys.has('ArrowUp')) - Number(panKeys.has('ArrowDown'));
+    if (!x && !z)
+        return;
+    camera.updateMatrixWorld();
+    panRight.setFromMatrixColumn(camera.matrixWorld, 0);
+    panRight.y = 0;
+    panRight.normalize();
+    panForward.crossVectors(new THREE.Vector3(0, 1, 0), panRight);
+    const speed = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.25, 12, 360);
+    panStep.copy(panRight).multiplyScalar(x).addScaledVector(panForward, z).normalize().multiplyScalar(speed * dt);
+    // Translate eye and target together on the site plane; keep height, orbit angle and zoom unchanged.
+    camera.position.add(panStep);
+    controls.target.add(panStep);
+    markDirty();
+}
 function goView(k, instant = false) {
+    panKeys.clear();
     const v = views[k];
     const refimg = document.getElementById('refimg'); // absent in the public build
     if (refimg && (k === 'S' || k === 'N'))
@@ -383,7 +421,6 @@ tg('t-hq', on => { hq = on; });
 tg('t-traffic', on => { traffic = on; land.parts.traffic.setEnabled(on); });
 tg('t-night', on => setSun(on ? -8 : 40, 325, on));
 tg('t-ref', on => document.getElementById('refwrap').classList.toggle('show', on));
-tg('t-mist', on => land.parts.mist.visible = on);
 // ---------------------------------------------------------------- quality: idle-only ambient occlusion
 // While the user navigates we render directly (fast). Once the view has been still for 300 ms we switch to
 // a composer with GTAO (contact shadows under equipment, eaves, trees) + SMAA. Toggle: 高画质.
@@ -392,7 +429,7 @@ composer.addPass(new RenderPass(scene, camera));
 const gtao = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
 gtao.updateGtaoMaterial({ radius: 6, distanceExponent: 1.5, thickness: 4, scale: 1.2, samples: 12 });
 gtao.blendIntensity = 0.85;
-// GTAO's depth/normal prepass renders every visible object opaque; transparent sprites (mist, labels) and
+// GTAO's depth/normal prepass renders every visible object opaque; transparent labels and
 // the sky dome would become black blocks — hide them for that prepass only.
 const baseOverride = gtao.overrideVisibility.bind(gtao);
 gtao.overrideVisibility = function () {
@@ -439,13 +476,14 @@ window.addEventListener('resize', resize);
 let lastRender = 0;
 function frame() {
     const nowMs = performance.now();
-    if (!bench.on && !tween && nowMs - stillSince > 1500 && nowMs - lastRender < 48) {
+    if (!bench.on && !tween && !panKeys.size && nowMs - stillSince > 1500 && nowMs - lastRender < 48) {
         requestAnimationFrame(frame);
         return;
     }
     lastRender = nowMs;
     const dt = Math.min(clock.getDelta(), 0.1);
     const t = clock.elapsedTime;
+    keyboardPan(dt);
     if (tween) {
         tween.t = Math.min(1, tween.t + dt / 1.6);
         const k = tween.t < 0.5 ? 4 * tween.t ** 3 : 1 - Math.pow(-2 * tween.t + 2, 3) / 2;
@@ -517,11 +555,9 @@ function benchTick() {
         scene.background = new THREE.Color(0xffffff);
         sky.visible = false;
         scene.fog = null;
-        for (const k of ['terrain', 'mist', 'traffic'])
+        for (const k of ['terrain', 'traffic'])
             if (land.parts[k])
                 land.parts[k].visible = false;
-        land.group.traverse(o => { if (o.name === 'trees-forest' || o.name === 'trees-conifer' || o.name === 'lakes')
-            o.visible = false; });
         renderer.clippingPlanes = [
             new THREE.Plane(new THREE.Vector3(-1, 0, 0), 496), new THREE.Plane(new THREE.Vector3(1, 0, 0), 496),
             new THREE.Plane(new THREE.Vector3(0, 0, -1), 336), new THREE.Plane(new THREE.Vector3(0, 0, 1), 336),
@@ -541,8 +577,6 @@ function benchTick() {
         setSun(-8, 325, true);
         document.getElementById('t-night').checked = true;
     }
-    if (q.get('mist') === '0')
-        land.parts.mist.visible = false;
     if (q.get('labels') === '0')
         labels.visible = false;
     if (q.get('trees') === '0')
@@ -606,7 +640,7 @@ frame();
     requestAnimationFrame(() => { if (assetManager.itemsTotal === 0)
         finish(); });
 }
-window.__campus = { scene, camera, renderer, goView, entries, ready: true };
+window.__campus = { scene, camera, controls, renderer, goView, entries, ready: true, clearanceAudit };
 // stats line
 let tris = 0, draws = 0;
 scene.traverse(o => {

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import * as T from './textures.js?v=bd76b00c2d';
-import { applyPBR } from './pbr.js?v=bd76b00c2d';
+import * as T from './textures.js?v=b3d95c4e38';
+import { applyPBR } from './pbr.js?v=b3d95c4e38';
 /** Material library — ids mirror object-sculpt-spec.json `materials[].id`. */
 export function createMaterials() {
     const tile = T.roofTileTex();
@@ -61,7 +61,6 @@ export function createMaterials() {
         'flowerbed': std({ color: 0xb4486a, roughness: 0.9 }),
         'soil': std({ color: 0x6b5a45, roughness: 1 }),
         'rock': std({ color: 0x8d8a82, roughness: 0.9, flatShading: true }),
-        'forest-floor': std({ map: T.forestFloorTex(), color: 0x6e8062, roughness: 1 }),
         'white-paint': std({ color: 0xf2f2f2, roughness: 0.5 }),
         'dark-glass': std({ color: 0x2a3440, roughness: 0.12, metalness: 0.5 }),
         'signage': std({ color: 0x2b3a4a, roughness: 0.4, metalness: 0.3 }),
@@ -78,8 +77,6 @@ export function createMaterials() {
     applyPBR(M['roof-tile'], 'grey_roof_tiles', { repeat: [1.6, 1.6], tint: 0x8a9098, normalScale: 1.2 });
     applyPBR(M['stone-cladding'], 'beige_wall_001', { map: false, repeat: [1.2, 1.2], normalScale: 0.7 });
     applyPBR(M['timber-light'], 'brown_planks_03', { repeat: [2, 2], tint: 0xcfc6b8 });
-    // forest floor under canopy: dark green (ref shows continuous forest, no bare soil); photo relief only
-    applyPBR(M['forest-floor'], 'aerial_grass_rock', { map: false, repeat: [3, 3], tint: 0x33462d, normalScale: 0.8 });
     // grass: keep the olive procedural colour field (reference-sampled), add photographic normal/roughness
     applyPBR(M['grass'], 'grass_path_2', { map: false, repeat: [12, 12], normalScale: 0.6 });
     applyPBR(M['lawn-2'], 'grass_path_2', { map: false, repeat: [8, 8], normalScale: 0.6 });

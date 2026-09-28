@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { smoothClosed, roundedRectPts, polyline } from './util.js?v=bd76b00c2d';
+import { smoothClosed, roundedRectPts, polyline } from './util.js?v=b3d95c4e38';
 /**
  * Site plan. 1 unit = 1 m, +X east, -Z north.
  *
@@ -22,8 +22,8 @@ export const ROAD_Z = 130; // shared FAB-north / core-loop-south road centreline
 export const DROPOFF = { x: 50, zN: 86, r: 12, w: 8 }; // U drop-off: legs at ±x, north lane centreline zN
 export const ADMIN_POOL = { z: 107, w: 76, d: 20 };
 export const B = {
-    gate: { x: 0, z: -334 }, // on the boundary wall line; perimeter road passes 14 m inside
-    plaza: { x: 0, z: -282, w: 150, d: 64 },
+    gate: { x: 0, z: -324 }, // recessed 11 m inside the boundary; pedestrian ceremonial entrance
+    plaza: { x: 0, z: -288, w: 150, d: 76 },
     pavilion: { x: 0, z: -188 },
     admin: { x: 0, z: 18, w: 196, d: 46 },
     fab2: { x: -212, z: 217, w: 244, d: 142 },
@@ -126,22 +126,27 @@ export function kerbReturn(cx, cz, r, a0, seg = 8) {
 }
 export const PERIM_Z = -320; // north leg of the perimeter road (inside the wall)
 export const FRONTAGE_Z = -352; // frontage road between the expressway and the site wall
+export const VEHICLE_GATE_X = 130;
+export const PARKING_AISLES = [-425, -345, 345, 425];
+export const WALKS = [-1, 1].map(s => polyline([[s * 300, -200], [s * 300, -303], [s * 75, -303]]));
+// Explicit ends avoid reconnecting the removed north segment across the pedestrian axis.
+const perimeter = roundedRectPts(0, 0, 940, 640, 70, 12);
+const core = openLoop(roundedRectPts(0, (PERIM_Z + ROAD_Z) / 2, 490, ROAD_Z - PERIM_Z, 115, 16), p => p.y < PERIM_Z + 0.5);
 const FAB_HALF = B.fab2.w / 2 + 40; // 40 m between facade and road centreline on the sides (docks + trucks)
 export const ROADS = [
     // perimeter loop
-    { pts: roundedRectPts(0, 0, 940, 640, 70, 12), width: 14, closed: true, kind: 'road-4' },
+    { pts: [new THREE.Vector2(130, PERIM_Z), ...perimeter, new THREE.Vector2(-130, PERIM_Z)], width: 14, closed: false, kind: 'road-4' },
     // core loop around pond + admin: south leg (z=ROAD_Z) shared with the FAB service roads, north leg merged into
     // the perimeter road (it used to cut through the gate plaza) → an open U joining the perimeter road
-    { pts: openLoop(roundedRectPts(0, (PERIM_Z + ROAD_Z) / 2, 490, ROAD_Z - PERIM_Z, 115, 16), p => p.y < PERIM_Z + 0.5), width: 11, closed: false, kind: 'road-2' },
+    { pts: [new THREE.Vector2(130, PERIM_Z), ...core, new THREE.Vector2(-130, PERIM_Z)], width: 11, closed: false, kind: 'road-2' },
     // FAB service roads (U from the perimeter road, north leg = core-loop south leg)
     { pts: fabLoop(B.fab2.x - 8, FAB_HALF), width: 10, closed: false, kind: 'road-2' },
     { pts: fabLoop(B.fab1.x + 8, FAB_HALF), width: 10, closed: false, kind: 'road-2' },
     // mask / lab service loops
     { pts: roundedRectPts(B.mask.x, B.mask.z, B.mask.w + 30, B.mask.d + 40, 20, 8), width: 9, closed: true, kind: 'road-2' },
     { pts: roundedRectPts(B.lab.x, B.lab.z, B.lab.w + 30, B.lab.d + 40, 20, 8), width: 9, closed: true, kind: 'road-2' },
-    // gate entry spine
-    // entrance throat: right-in/right-out off the frontage road, through the gate, T-junction with the perimeter road
-    { pts: polyline([[0, FRONTAGE_Z + 6], [0, PERIM_Z - 7]]), width: 16, closed: false, kind: 'road-4' },
+    // Vehicle gates flank the ceremonial entrance: no transverse road through the pedestrian court.
+    ...[-1, 1].map(s => ({ pts: polyline([[s * VEHICLE_GATE_X, FRONTAGE_Z], [s * VEHICLE_GATE_X, PERIM_Z]]), width: 12, closed: false, kind: 'road-2' })),
     // parking-lot driveways to the east/west connectors (the lots had no vehicle access)
     { pts: polyline([[-345, -144], [-345, -105]]), width: 8, closed: false, kind: 'road-2' },
     { pts: polyline([[-425, -144], [-425, -105]]), width: 8, closed: false, kind: 'road-2' },
@@ -150,12 +155,24 @@ export const ROADS = [
     // connectors core loop -> perimeter east/west (between the parking lots and the mask/lab loops)
     { pts: polyline([[-245, -100], [-470, -100]]), width: 11, closed: false, kind: 'road-2' },
     { pts: polyline([[245, -100], [470, -100]]), width: 11, closed: false, kind: 'road-2' },
+    // Previously isolated mask/lab service loops now have two links to the campus network.
+    ...[-1, 1].flatMap(s => [
+        { pts: polyline([[s * 352, -100], [s * 352, -48]]), width: 9, closed: false, kind: 'road-2' },
+        { pts: polyline([[s * 300, 96], [s * 300, ROAD_Z]]), width: 9, closed: false, kind: 'road-2' },
+    ]),
     // admin drop-off: U hanging north off the shared road, big pool inside, 12 m plaza before the stair
     { pts: uPath(DROPOFF.x, ROAD_Z, DROPOFF.zN, DROPOFF.r), width: DROPOFF.w, closed: false, kind: 'road-2' },
     // north expressway (outside the site) + frontage road
     { pts: polyline([[-1400, -392], [1400, -392]]), width: 44, closed: false, kind: 'highway' },
     { pts: polyline([[-1400, FRONTAGE_Z], [1400, FRONTAGE_Z]]), width: 12, closed: false, kind: 'road-4' },
 ];
+// Traffic closes through the east/west connectors. North gates remain arrival/departure branches.
+export const TRAFFIC_ROUTE = polyline([
+    [245, -100], ...ROADS[1].pts.filter(p => p.y >= -100).map(p => [p.x, p.y]),
+    [-245, -100], [-470, -100],
+    ...ROADS[0].pts.filter(p => p.y >= -100).reverse().map(p => [p.x, p.y]),
+    [470, -100], [245, -100],
+]);
 /** North-east cloverleaf interchange loops (visible top-right in the reference). */
 export const INTERCHANGE = [
     { pts: roundedRectPts(640, -470, 150, 120, 58, 16), width: 9, closed: true, kind: 'road-2' },
@@ -172,7 +189,7 @@ export const BLOCKERS = [
     { x: 0, z: B.fab2.z, w: 190, d: 14 }, // sky bridge line
     { x: 0, z: B.pavilion.z - 6, w: 110, d: 60 }, // pavilion
     { x: B.restGlass.x, z: B.restGlass.z, w: 90, d: 50 }, { x: B.restJp.x, z: B.restJp.z, w: 90, d: 50 },
-    { x: 0, z: -334, w: 200, d: 20 }, // gate
+    { x: 0, z: B.gate.z, w: 240, d: 24 }, // gate and flags
     { x: 0, z: -338, w: 210, d: 30 }, // gate forecourt apron
     { x: 0, z: -95, w: 26, d: 150 }, // causeway
 ];

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { trs } from './util.js?v=bd76b00c2d';
+import { trs } from './util.js?v=b3d95c4e38';
 export function roofGeometry(W, D, H, style, opts = {}) {
     const D2 = D / 2, W2 = W / 2;
     const concave = style === 'hip' ? 1.0 : style === 'irimoya' ? 1.35 : 1.6;
